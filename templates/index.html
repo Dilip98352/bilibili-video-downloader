@@ -1,52 +1,50 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Bilibili Video Downloader</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bilibili Video Downloader</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="container">
     <h1>🎬 Bilibili Video Downloader</h1>
-    <input type="text" id="url" placeholder="Enter Bilibili URL" />
-    <button id="downloadBtn">Start Download</button>
-    <div id="status"></div>
-    <div id="progressContainer">
-        <div id="progressBar"></div>
+    <form id="downloadForm">
+        <input type="text" name="url" placeholder="Enter Bilibili URL" required>
+        <button type="submit">Start Download</button>
+    </form>
+
+    <div id="status">
+        <p id="log">Status: Waiting...</p>
+        <div class="progress-bar">
+            <div class="progress" id="progress"></div>
+        </div>
     </div>
 </div>
 
 <script>
-document.getElementById('downloadBtn').onclick = async function () {
-    const url = document.getElementById('url').value;
-    if (!url) return alert('Enter a URL!');
+document.getElementById('downloadForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    const formData = new FormData(this);
+    const res = await fetch('/download', { method: 'POST', body: formData });
+    const data = await res.json();
 
-    document.getElementById('status').innerText = 'Downloading...';
-    const progressBar = document.getElementById('progressBar');
-    progressBar.style.width = '0%';
+    if(data.task_id){
+        const taskId = data.task_id;
+        const progressEl = document.getElementById('progress');
+        const logEl = document.getElementById('log');
 
-    try {
-        const formData = new FormData();
-        formData.append('url', url);
-
-        const res = await fetch('/download', {
-            method: 'POST',
-            body: formData
-        });
-
-        const data = await res.json();
-
-        if (data.error) {
-            document.getElementById('status').innerText = "Error: " + data.error;
-        } else {
-            progressBar.style.width = '100%';
-            document.getElementById('status').innerHTML = `<a href="${data.file}">Download Ready! Click Here</a>`;
-        }
-
-    } catch (err) {
-        document.getElementById('status').innerText = 'Error: ' + err;
+        const interval = setInterval(async () => {
+            const res = await fetch(`/progress/${taskId}`);
+            const info = await res.json();
+            logEl.textContent = `Status: ${info.status}`;
+            progressEl.style.width = info.progress;
+            if(info.progress === '100%' || info.status.startsWith('Error')){
+                clearInterval(interval);
+            }
+        }, 1000);
     }
-};
+});
 </script>
 </body>
 </html>

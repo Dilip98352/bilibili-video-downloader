@@ -1,30 +1,37 @@
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify
 import yt_dlp
-import os
-from threading import Thread
+import threading
 
 app = Flask(__name__)
 
-DOWNLOAD_FOLDER = "downloads"
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+download_progress = {}
+
+def download_video(url, task_id):
+    ydl_opts = {
+        'format': 'best[height<=720]',  # max 720p to avoid VIP-only
+        'outtmpl': '%(title)s.%(ext)s',
+        'progress_hooks': [lambda d: progress_hook(d, task_id)],
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+            download_progress[task_id]['status'] = 'Completed'
+    except Exception as e:
+        download_progress[task_id]['status'] = f'Error: {str(e)}'
+
+def progress_hook(d, task_id):
+    if d['status'] == 'downloading':
+        percent = d.get('_percent_str', '0%').strip()
+        download_progress[task_id]['progress'] = percent
+        download_progress[task_id]['status'] = 'Downloading...'
+    elif d['status'] == 'finished':
+        download_progress[task_id]['progress'] = '100%'
+        download_progress[task_id]['status'] = 'Processing...'
 
 @app.route('/')
 def index():
     return render_template('index.html')
-
-def download_video(url, path, result):
-    try:
-        ydl_opts = {
-            'outtmpl': path,
-            'format': 'best',
-            'noplaylist': True,
-            'quiet': True,
-            'progress_hooks': [lambda d: result.update(d)]
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-    except Exception as e:
-        result['error'] = str(e)
 
 @app.route('/download', methods=['POST'])
 def download():
@@ -32,26 +39,20 @@ def download():
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
 
-    filename = "video.mp4"
-    filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-    result = {}
-    thread = Thread(target=download_video, args=(url, filepath, result))
+    task_id = str(len(download_progress) + 1)
+    download_progress[task_id] = {'progress': '0%', 'status': 'Queued'}
+
+    thread = threading.Thread(target=download_video, args=(url, task_id))
     thread.start()
-    thread.join()  # Wait for download to finish
 
-    if 'error' in result:
-        return jsonify({'error': result['error']}), 500
+    return jsonify({'task_id': task_id})
 
-    return jsonify({'file': f'/download_file/{filename}'})
-
-
-@app.route('/download_file/<filename>')
-def download_file(filename):
-    path = os.path.join(DOWNLOAD_FOLDER, filename)
-    if os.path.exists(path):
-        return send_file(path, as_attachment=True)
-    return "File not found", 404
-
+@app.route('/progress/<task_id>')
+def progress(task_id):
+    info = download_progress.get(task_id, None)
+    if info:
+        return jsonify(info)
+    return jsonify({'progress': '0%', 'status': 'Not found'})
 
 if __name__ == '__main__':
     app.run(debug=True)
