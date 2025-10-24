@@ -2,49 +2,51 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bilibili Video Downloader</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <h1>🎬 Bilibili Video Downloader</h1>
-        <form id="downloadForm">
-            <input type="text" id="url" name="url" placeholder="Video URL" required>
-            <button type="submit">Start Download</button>
-        </form>
-        <div id="logs"></div>
-        <div id="downloadLink"></div>
+<div class="container">
+    <h1>🎬 Bilibili Video Downloader</h1>
+    <input type="text" id="url" placeholder="Enter Bilibili URL" />
+    <button id="downloadBtn">Start Download</button>
+    <div id="status"></div>
+    <div id="progressContainer">
+        <div id="progressBar"></div>
     </div>
+</div>
 
 <script>
-document.getElementById("downloadForm").addEventListener("submit", function(e) {
-    e.preventDefault();
-    const url = document.getElementById("url").value;
-    const logsDiv = document.getElementById("logs");
-    const linkDiv = document.getElementById("downloadLink");
-    logsDiv.innerHTML = "Starting download...";
-    linkDiv.innerHTML = "";
+document.getElementById('downloadBtn').onclick = async function () {
+    const url = document.getElementById('url').value;
+    if (!url) return alert('Enter a URL!');
 
-    fetch("/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "url=" + encodeURIComponent(url)
-    })
-    .then(response => response.json())
-    .then(data => {
-        logsDiv.innerHTML = data.logs.join("<br>");
-        if(data.status === "success"){
-            const filePath = data.file.split("/").pop();
-            linkDiv.innerHTML = `<a href="/downloads/${filePath}" download>✅ Download Completed: ${filePath}</a>`;
+    document.getElementById('status').innerText = 'Downloading...';
+    const progressBar = document.getElementById('progressBar');
+    progressBar.style.width = '0%';
+
+    try {
+        const formData = new FormData();
+        formData.append('url', url);
+
+        const res = await fetch('/download', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+            document.getElementById('status').innerText = "Error: " + data.error;
         } else {
-            linkDiv.innerHTML = `<span style="color:red;">❌ ${data.message}</span>`;
+            progressBar.style.width = '100%';
+            document.getElementById('status').innerHTML = `<a href="${data.file}">Download Ready! Click Here</a>`;
         }
-    })
-    .catch(err => {
-        logsDiv.innerHTML = `<span style="color:red;">Error: ${err}</span>`;
-    });
-});
+
+    } catch (err) {
+        document.getElementById('status').innerText = 'Error: ' + err;
+    }
+};
 </script>
 </body>
 </html>

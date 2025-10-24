@@ -1,54 +1,57 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_file
+import yt_dlp
 import os
-import subprocess
+from threading import Thread
 
 app = Flask(__name__)
 
 DOWNLOAD_FOLDER = "downloads"
-if not os.path.exists(DOWNLOAD_FOLDER):
-    os.makedirs(DOWNLOAD_FOLDER)
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-@app.route("/")
+@app.route('/')
 def index():
-    return render_template("index.html")
+    return render_template('index.html')
 
-@app.route("/download", methods=["POST"])
-def download_video():
-    url = request.form.get("url")
+def download_video(url, path, result):
+    try:
+        ydl_opts = {
+            'outtmpl': path,
+            'format': 'best',
+            'noplaylist': True,
+            'quiet': True,
+            'progress_hooks': [lambda d: result.update(d)]
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        result['error'] = str(e)
+
+@app.route('/download', methods=['POST'])
+def download():
+    url = request.form.get('url')
     if not url:
-        return jsonify({"status": "error", "message": "Please provide a video URL."})
+        return jsonify({'error': 'No URL provided'}), 400
 
-    filename = "%(title)s.%(ext)s"
+    filename = "video.mp4"
     filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+    result = {}
+    thread = Thread(target=download_video, args=(url, filepath, result))
+    thread.start()
+    thread.join()  # Wait for download to finish
 
-    cmd = [
-        "yt-dlp",
-        url,
-        "-f", "bv*+ba/best",
-        "--merge-output-format", "mp4",
-        "--newline",
-        "-o", filepath
-    ]
+    if 'error' in result:
+        return jsonify({'error': result['error']}), 500
 
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return jsonify({'file': f'/download_file/{filename}'})
 
-    logs = []
-    for line in process.stdout:
-        logs.append(line.strip())
 
-    process.wait()
-    if process.returncode != 0:
-        return jsonify({"status": "error", "message": "Download failed", "logs": logs})
+@app.route('/download_file/<filename>')
+def download_file(filename):
+    path = os.path.join(DOWNLOAD_FOLDER, filename)
+    if os.path.exists(path):
+        return send_file(path, as_attachment=True)
+    return "File not found", 404
 
-    # Get the actual downloaded file
-    downloaded_files = os.listdir(DOWNLOAD_FOLDER)
-    latest_file = max([os.path.join(DOWNLOAD_FOLDER, f) for f in downloaded_files], key=os.path.getctime)
 
-    return jsonify({"status": "success", "file": latest_file, "logs": logs})
-
-@app.route("/downloads/<filename>")
-def serve_file(filename):
-    return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=True)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app.run(debug=True)
